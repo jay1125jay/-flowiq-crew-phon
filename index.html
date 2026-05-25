@@ -1945,6 +1945,26 @@ button.blue.full,button.green.full{
   font-weight:900;
 }
 
+
+/* ===== FlowIQ Crew v3.8.1 Job Create Alert Check ===== */
+.job-alert-check{
+  display:flex;
+  align-items:flex-start;
+  gap:10px;
+  background:rgba(37,99,235,.10);
+  border:1px solid rgba(96,165,250,.18);
+  border-radius:18px;
+  padding:13px 14px;
+  margin:8px 0 16px;
+}
+.job-alert-check input{
+  width:auto;
+  min-height:auto;
+  margin:3px 0 0;
+}
+.job-alert-check b{display:block;font-size:13px;color:#dbeafe;margin-bottom:3px}
+.job-alert-check span{display:block;font-size:12px;color:#94a3b8;line-height:1.45}
+
 </style>
 </head>
 
@@ -2161,6 +2181,15 @@ button.blue.full,button.green.full{
     <label>위치</label>
     <input id="fLocation" placeholder="예: 경기 화성시 장안면 ○○로 123, 상세주소 포함"/>
 
+    <label>공고 알림</label>
+    <label class="job-alert-check">
+      <input id="fMasterNotify" type="checkbox" checked>
+      <div>
+        <b>MASTER 신규 공고 알림 ON</b>
+        <span>공고 저장 후 MASTER 화면에 자동으로 신규 공고 알림이 표시됩니다.</span>
+      </div>
+    </label>
+
     <label>근무 시간</label>
     <input id="fTime" placeholder="예: 08:00 - 18:00"/>
 
@@ -2302,7 +2331,7 @@ let applications=[];
 let allApplications=[];
 let attendance=[];
 let managerPendingApplications=[];
-let APP_VERSION='FlowIQ Crew OPERATIONS v3.7.7 SUPABASE LOGIN';
+let APP_VERSION='FlowIQ Crew OPERATIONS v3.8.2 MANAGER ALERT LIVE SYNC';
 let managerFilter='all';
 let managerSearch='';
 let managerAutoRefreshTimer=null;
@@ -2505,15 +2534,16 @@ function renderManagerAlertPanel(){
     <div class="manager-alert-row">
       <div>
         <b>🔔 지원자 알림</b><br>
-        <span>자동 새로고침 ON · 대기 지원 ${pending}명</span>
+        <span>자동 갱신 ON · 실시간 반영 · 대기 지원 ${pending}명</span>
       </div>
       <button class="${enabled?'green':'blue'}" onclick="enableManagerAlertSound()">${enabled?'알림 ON':'알림 시작'}</button>
     </div>
     <div class="manager-alert-row" style="margin-top:10px">
       <button class="gray" onclick="testManagerAlertSound()">알림 테스트</button>
-      <button class="gray" onclick="managerAutoRefreshTick()">즉시 갱신</button>
+      <button class="gray" onclick="managerAutoRefreshTick(true)">즉시 갱신</button>
     </div>
-    <div class="manager-alert-live">소리는 MASTER/관리자 화면에서 <b>알림 시작</b>을 한 번 눌러야 켜집니다. 소리가 작으면 휴대폰 무음모드/브라우저 볼륨을 확인하세요.</div>
+    <div class="manager-alert-live">소리는 <b>알림 시작</b>을 한 번 눌러야 켜집니다. 아이폰은 무음모드가 켜져 있으면 진동만 올 수 있습니다.</div>
+    <div id="managerLiveSyncStamp" class="manager-alert-live">최근 자동갱신: 대기 중</div>
     <div id="managerNewApplicantNotice" class="manager-alert-new hidden">신규 지원자가 등록되었습니다.</div>
   </div>`;
 }
@@ -2529,18 +2559,18 @@ async function unlockManagerAlertAudio(){
 async function enableManagerAlertSound(){
   managerAlertEnabled=true;
   localStorage.setItem('manager_alert_enabled','1');
-  await unlockManagerAlertAudio();
-  playManagerAlertSound(true);
-  showManagerNewApplicantNotice(0);
-  renderManager();
+  const ok=await unlockManagerAlertAudio();
+  playManagerAlertSound(false);
+  showManagerNewApplicantNotice(0, ok ? '알림이 켜졌습니다.' : '알림 시작됨 · 소리가 안 나면 무음모드를 확인하세요.');
+  setTimeout(()=>renderManager(),200);
 }
 async function testManagerAlertSound(){
   managerAlertEnabled=true;
   localStorage.setItem('manager_alert_enabled','1');
   await unlockManagerAlertAudio();
   playManagerAlertSound(false);
-  if(navigator.vibrate)navigator.vibrate([120,60,120]);
-  alert('알림 테스트를 실행했습니다. 소리가 안 나면 휴대폰 무음모드/볼륨/브라우저 권한을 확인하세요.');
+  if(navigator.vibrate)navigator.vibrate([160,70,160]);
+  showManagerNewApplicantNotice(0,'알림 테스트 실행됨');
 }
 function playTone(ctx,freq,start,duration,volume){
   const osc=ctx.createOscillator();
@@ -2548,53 +2578,77 @@ function playTone(ctx,freq,start,duration,volume){
   osc.type='sine';
   osc.frequency.setValueAtTime(freq,start);
   gain.gain.setValueAtTime(0.0001,start);
-  gain.gain.exponentialRampToValueAtTime(volume,start+0.025);
+  gain.gain.exponentialRampToValueAtTime(volume,start+0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001,start+duration);
   osc.connect(gain);
   gain.connect(ctx.destination);
   osc.start(start);
-  osc.stop(start+duration+0.03);
+  osc.stop(start+duration+0.04);
 }
-function playManagerAlertSound(short=false){
+async function playManagerAlertSound(short=false){
   if(!managerAlertEnabled)return;
   try{
+    await unlockManagerAlertAudio();
     const ctx=managerAlertAudioCtx;
-    if(!ctx || ctx.state!=='running')return;
-    const now=ctx.currentTime;
-    if(short){
-      playTone(ctx,740,now,0.16,0.28);
-    }else{
-      playTone(ctx,880,now,0.18,0.32);
-      playTone(ctx,1160,now+0.22,0.22,0.34);
+    if(ctx && ctx.state==='running'){
+      const now=ctx.currentTime;
+      playTone(ctx,880,now,0.20,0.45);
+      if(!short){
+        playTone(ctx,1180,now+0.24,0.24,0.48);
+        playTone(ctx,920,now+0.52,0.18,0.38);
+      }
     }
-    if(navigator.vibrate)navigator.vibrate(short?80:[120,60,120]);
+    if(navigator.vibrate)navigator.vibrate(short?120:[180,80,180,80,220]);
   }catch(e){console.warn('alert sound blocked',e)}
 }
-function showManagerNewApplicantNotice(count){
+function showManagerNewApplicantNotice(count,msg){
   const el=document.getElementById('managerNewApplicantNotice');
   if(!el)return;
-  el.textContent=`🔔 신규 지원자 ${count}명 등록됨`;
+  el.textContent=msg || `🔔 신규 지원자 ${count}명 등록됨`;
   el.classList.remove('hidden');
-  setTimeout(()=>el.classList.add('hidden'),3500);
+  setTimeout(()=>el.classList.add('hidden'),4500);
 }
 function updateManagerPendingBaseline(){
   managerKnownPendingKeys=getManagerPendingKeys();
   managerLastPendingCount=managerKnownPendingKeys.length;
 }
-async function managerAutoRefreshTick(){
+function managerLiveRender(){
+  if(role!=='manager' || currentScreen!=='managerScreen')return;
+  renderManager();
+  const stamp=document.getElementById('managerLiveSyncStamp');
+  if(stamp)stamp.innerText='최근 자동갱신: '+new Date().toLocaleTimeString('ko-KR');
+}
+async function managerAutoRefreshTick(force=false){
   if(role!=='manager' || currentScreen!=='managerScreen' || managerSyncing)return;
   managerSyncing=true;
-  const before=new Set(managerKnownPendingKeys.length?managerKnownPendingKeys:getManagerPendingKeys());
+  const beforeKeys=new Set(managerKnownPendingKeys);
+  const beforeCount=typeof managerLastPendingCount==='number' ? managerLastPendingCount : getManagerPendingKeys().length;
   try{
-    await loadData();
-    const after=getManagerPendingKeys();
-    const newKeys=after.filter(k=>!before.has(k));
-    if(newKeys.length>0){
-      playManagerAlertSound(false);
-      showManagerNewApplicantNotice(newKeys.length);
+    const jr=await db.from("jobs").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    const ar=await db.from("applications").select("*").order("created_at",{ascending:false});
+    const tr=await db.from("attendance").select("*").eq("company_id",companyId).order("created_at",{ascending:false});
+    if(jr.error)throw jr.error;
+    if(ar.error)throw ar.error;
+    if(tr.error)throw tr.error;
+    jobs=jr.data||[];
+    allApplications=ar.data||[];
+    applications=(allApplications||[]).filter(a=>String(a.company_id||'')===String(companyId||'') || getManagerJobIds().has(Number(a.job_id)));
+    attendance=tr.data||[];
+    const afterKeys=getManagerPendingKeys();
+    const afterCount=afterKeys.length;
+    const newKeys=afterKeys.filter(k=>!beforeKeys.has(k));
+    const increased=afterCount>beforeCount;
+    managerKnownPendingKeys=afterKeys;
+    managerLastPendingCount=afterCount;
+    managerLiveRender();
+    requestAnimationFrame(managerLiveRender);
+    if((newKeys.length>0 || increased) && beforeKeys.size>0){
+      await playManagerAlertSound(false);
+      showManagerNewApplicantNotice(Math.max(newKeys.length, afterCount-beforeCount));
     }
-    managerKnownPendingKeys=after;
-    managerLastPendingCount=after.length;
+  }catch(err){
+    console.warn('manager live sync failed',err);
+    if(force)alert('자동 갱신 오류: '+(err.message||err));
   }finally{
     managerSyncing=false;
   }
@@ -2602,7 +2656,8 @@ async function managerAutoRefreshTick(){
 function startManagerAutoRefresh(){
   if(managerAutoRefreshTimer)return;
   updateManagerPendingBaseline();
-  managerAutoRefreshTimer=setInterval(managerAutoRefreshTick,5000);
+  managerAutoRefreshTimer=setInterval(()=>managerAutoRefreshTick(false),2500);
+  setTimeout(()=>managerAutoRefreshTick(true),400);
 }
 function stopManagerAutoRefresh(){
   if(managerAutoRefreshTimer){clearInterval(managerAutoRefreshTimer); managerAutoRefreshTimer=null;}
@@ -3346,7 +3401,13 @@ function getJobRawType(job){
 function getJobStatus(job){
   const raw=getJobRawType(job);
   const match=raw.match(/^\[(입금대기|입금확인|게시중|공고마감)\]\s*/);
-  return match ? match[1] : "게시중";
+  // MASTER가 명시적으로 [게시중] 처리한 공고만 근로자에게 공개합니다.
+  // 상태값이 없는 과거/비정상 공고는 안전하게 입금대기로 간주합니다.
+  return match ? match[1] : "입금대기";
+}
+
+function isJobPublished(job){
+  return getJobStatus(job)==="게시중";
 }
 
 function getJobType(job){
@@ -3399,7 +3460,7 @@ function renderJobs(){
   const filteredJobs =
   role==="manager"
     ? jobs.filter(j=>j.company_id===companyId)
-    : jobs.filter(j=>getJobStatus(j)==="게시중")
+    : jobs.filter(j=>isJobPublished(j))
         .filter(j=>workerRegionFilter==="전체" || getJobRegion(j.location)===workerRegionFilter);
 
   const activeStatuses=["지원","승인","출근완료","근무완료","입금대기","지급확인중","수령확인완료"];
@@ -3470,11 +3531,22 @@ async function applyJob(jobId){
     return alert("공고를 찾을 수 없습니다.");
   }
 
-  if(getJobStatus(job)!=="게시중"){
-    return alert("아직 게시 승인되지 않은 공고입니다.");
+  // 브라우저/기기 캐시가 달라도 실제 Supabase 공고 상태를 최종 기준으로 확인합니다.
+  const liveJobResult=await db.from("jobs").select("*").eq("id",jobId).single();
+  if(liveJobResult.error || !liveJobResult.data){
+    return alert("공고 상태 확인 오류: "+(liveJobResult.error?.message||"공고 없음"));
+  }
+  const liveJob=liveJobResult.data;
+  const liveIndex=jobs.findIndex(j=>Number(j.id)===Number(jobId));
+  if(liveIndex>=0)jobs[liveIndex]=liveJob;
+
+  if(!isJobPublished(liveJob)){
+    await loadData();
+    return alert("아직 MASTER 게시승인되지 않은 공고입니다.");
   }
 
-  if(isJobFull(job)){
+  if(isJobFull(liveJob)){
+    await loadData();
     return alert("필요 인원이 마감된 공고입니다.");
   }
 
@@ -3494,7 +3566,7 @@ async function applyJob(jobId){
 
   const rejectedSameCompany=applications.some(a=>
     String(a.phone || "").trim()===String(workerPhone || "").trim() &&
-    String(a.company_id || "").trim()===String(job.company_id || "").trim() &&
+    String(a.company_id || "").trim()===String(liveJob.company_id || "").trim() &&
     ["거절","rejected","REJECTED"].includes(String(a.status || "").trim())
   );
 
@@ -3506,7 +3578,7 @@ async function applyJob(jobId){
     job_id:jobId,
     worker_name:workerName || "이름없음",
     phone:workerPhone || "번호없음",
-    company_id:job.company_id,
+    company_id:liveJob.company_id,
     status:"지원"
   });
 
@@ -3515,7 +3587,7 @@ async function applyJob(jobId){
   }
 
   await db.from("jobs").update({
-    applied:(job.applied||0)+1
+    applied:(liveJob.applied||0)+1
   }).eq("id",jobId);
 
   await loadData();
@@ -3690,7 +3762,7 @@ function renderManager(){
   if(mJobs)mJobs.innerText=filteredJobs.length;
 
   if(managerTitle){
-    managerTitle.innerText=getCurrentCompanyName() + " · v3.7.8";
+    managerTitle.innerText=getCurrentCompanyName() + " · v3.8.3";
   }
 
   const jobRows=filteredJobs.map(j=>{
@@ -3753,7 +3825,7 @@ function renderManager(){
   workersList.innerHTML=`<div class="card notice">
     <div class="title">현장관리자 운영센터</div>
     <div class="sub">지원자 승인과 근무완료 체크는 위 공고 카드의 “지원자 보기”에서 처리합니다. 출근은 근로자 QR 출근으로만 기록됩니다.</div>
-    ${renderManagerAlertPanel()}
+    <div class="sub" id="managerLiveSyncStamp">자동 갱신 ON · 지원자 수는 자동 반영됩니다.</div>
   </div>`;
 }
 
@@ -3775,6 +3847,7 @@ function toggleOtherType(){
   const otherType=document.getElementById("fTypeOther")?.value.trim()||"";
   const type=selectedType==="기타"?otherType:selectedType;
   const selectedLangs=[...document.querySelectorAll(".langCheck:checked")].map(x=>x.value);
+  const masterNotify=!!document.getElementById("fMasterNotify")?.checked;
   const language=selectedLangs.length?"한국어 / "+selectedLangs.join(" / "):"한국어";
 
   if(!title||!location||!work_time||!salary||!needed||!type)return alert("업체명, 위치, 시간, 일급, 필요 인원, 작업 종류를 입력하세요.");
@@ -3797,11 +3870,13 @@ function toggleOtherType(){
   document.getElementById("fType").value="물류";
   document.getElementById("fTypeOther").value="";
   document.getElementById("fTypeOther").classList.add("hidden");
+  const notifyCheck=document.getElementById("fMasterNotify");
+  if(notifyCheck)notifyCheck.checked=true;
   updatePaymentPreview();
   document.querySelectorAll(".langCheck").forEach(x=>x.checked=false);
 
   await loadData();
-  alert("공고가 저장되었습니다. 수수료(5%) 포함 총 결제금액: "+won(totalPayment(salary)));
+  alert("공고가 저장되었습니다. 수수료(5%) 포함 총 결제금액: "+won(totalPayment(salary))+(masterNotify?"\nMASTER 신규 공고 알림 대상입니다.":""));
   goScreen("managerScreen");
 }
 let currentCheckinLink="";
@@ -4558,6 +4633,151 @@ function copyCrewAccount(){
     alert("계좌번호: "+account);
   }
 }
+</script>
+
+
+<script>
+/* ===== FlowIQ Crew v3.8.2 Manager Alert + Live Sync Hard Fix ===== */
+(function(){
+  const SYNC_MS = 2500;
+  let liveTimer = null;
+  let liveBusy = false;
+  let alertReadyRequested = false;
+
+  function flowiqManagerJobIds(){
+    return (jobs || []).map(j => Number(j.id)).filter(Boolean);
+  }
+
+  async function flowiqPrepareManagerAlert(){
+    try{
+      managerAlertEnabled = true;
+      localStorage.setItem('manager_alert_enabled','1');
+      alertReadyRequested = true;
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if(AudioContext && !managerAlertAudioCtx){
+        managerAlertAudioCtx = new AudioContext();
+      }
+      if(managerAlertAudioCtx && managerAlertAudioCtx.state === 'suspended'){
+        await managerAlertAudioCtx.resume();
+      }
+      return !!(managerAlertAudioCtx && managerAlertAudioCtx.state === 'running');
+    }catch(e){
+      console.warn('manager alert prepare failed', e);
+      return false;
+    }
+  }
+
+  document.addEventListener('click', function(e){
+    const inManagerLogin = !!e.target.closest('#managerLoginScreen');
+    const inManagerScreen = !!e.target.closest('#managerScreen');
+    const managerIntent = inManagerLogin || inManagerScreen || role === 'manager';
+    if(managerIntent){ flowiqPrepareManagerAlert(); }
+  }, true);
+
+  const originalRenderManager = window.renderManager;
+  window.renderManager = function(){
+    if(typeof originalRenderManager === 'function'){
+      originalRenderManager.apply(this, arguments);
+    }
+    try{
+      const workersList = document.getElementById('workersList');
+      if(workersList && !document.getElementById('managerNewApplicantNotice')){
+        const box = document.createElement('div');
+        box.id = 'managerNewApplicantNotice';
+        box.className = 'manager-alert-new hidden';
+        box.style.marginTop = '10px';
+        box.textContent = '신규 지원자가 등록되었습니다.';
+        workersList.appendChild(box);
+      }
+      const stamp = document.getElementById('managerLiveSyncStamp');
+      if(stamp){
+        stamp.innerText = '자동 갱신 ON · 최근 반영: ' + new Date().toLocaleTimeString('ko-KR');
+      }
+    }catch(e){ console.warn('manager render addon failed', e); }
+  };
+
+  window.managerAutoRefreshTick = async function(force=false){
+    if(role !== 'manager' || liveBusy) return;
+    liveBusy = true;
+
+    const beforeKeys = new Set(typeof getManagerPendingKeys === 'function' ? getManagerPendingKeys() : []);
+    const beforeCount = beforeKeys.size;
+
+    try{
+      const jr = await db.from('jobs')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', {ascending:false});
+      if(jr.error) throw jr.error;
+
+      const nextJobs = jr.data || [];
+      const jobIds = nextJobs.map(j => Number(j.id)).filter(Boolean);
+      let nextApps = [];
+      let nextAttendance = [];
+
+      if(jobIds.length){
+        const ar = await db.from('applications')
+          .select('*')
+          .in('job_id', jobIds)
+          .order('created_at', {ascending:false});
+        if(ar.error) throw ar.error;
+        nextApps = ar.data || [];
+
+        const tr = await db.from('attendance')
+          .select('*')
+          .in('job_id', jobIds)
+          .order('created_at', {ascending:false});
+        if(tr.error) console.warn('attendance live sync warning', tr.error.message);
+        nextAttendance = tr.data || [];
+      }
+
+      jobs = nextJobs;
+      allApplications = nextApps;
+      applications = nextApps;
+      attendance = nextAttendance;
+
+      if(currentScreen === 'managerScreen'){
+        renderManager();
+        requestAnimationFrame(() => renderManager());
+      }
+
+      const afterKeys = typeof getManagerPendingKeys === 'function' ? getManagerPendingKeys() : [];
+      const afterSet = new Set(afterKeys);
+      const newKeys = afterKeys.filter(k => !beforeKeys.has(k));
+      managerKnownPendingKeys = afterKeys;
+      managerLastPendingCount = afterKeys.length;
+
+      if((newKeys.length > 0 || afterSet.size > beforeCount) && beforeCount >= 0){
+        managerAlertEnabled = true;
+        localStorage.setItem('manager_alert_enabled','1');
+        await flowiqPrepareManagerAlert();
+        if(typeof playManagerAlertSound === 'function') await playManagerAlertSound(false);
+        if(typeof showManagerNewApplicantNotice === 'function'){
+          showManagerNewApplicantNotice(Math.max(newKeys.length, afterSet.size - beforeCount), '🔔 신규 지원자가 등록되었습니다.');
+        }
+      }
+    }catch(err){
+      console.warn('manager live sync hard fix failed', err);
+      if(force) alert('관리자 자동 갱신 오류: ' + (err.message || err));
+    }finally{
+      liveBusy = false;
+    }
+  };
+
+  window.startManagerAutoRefresh = function(){
+    if(role !== 'manager') return;
+    managerAlertEnabled = true;
+    localStorage.setItem('manager_alert_enabled','1');
+    if(typeof updateManagerPendingBaseline === 'function') updateManagerPendingBaseline();
+    if(liveTimer) clearInterval(liveTimer);
+    liveTimer = setInterval(() => managerAutoRefreshTick(false), SYNC_MS);
+    setTimeout(() => managerAutoRefreshTick(true), 250);
+  };
+
+  window.stopManagerAutoRefresh = function(){
+    if(liveTimer){ clearInterval(liveTimer); liveTimer = null; }
+  };
+})();
 </script>
 
 </body>
