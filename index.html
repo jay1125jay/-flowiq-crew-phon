@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>FlowIQ Crew OPERATIONS v4.1.39 MY INFO OUTLINE</title>
-<meta name="flowiq-version" content="v4.1.39 MY INFO OUTLINE" />
+<title>FlowIQ Crew OPERATIONS v4.1.40 JOB ALERT FIX</title>
+<meta name="flowiq-version" content="v4.1.40 JOB ALERT FIX" />
 <meta name="flowiq-build" content="operations-my-info-outline" />
 <meta name="theme-color" content="#020617" />
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -107,14 +107,14 @@ details summary{background:rgba(37,99,235,.18);border:1px solid rgba(96,165,250,
 </main>
 
 <script>
-const APP_VERSION='v4.1.39 MY INFO OUTLINE';
+const APP_VERSION='v4.1.40 JOB ALERT FIX';
 const SUPABASE_URL='https://zhbzphvqiiijfjqnktlo.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpoYnpwaHZxaWlpamZqcW5rdGxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNDEwNTcsImV4cCI6MjA5NDYxNzA1N30.ufIPHJh2fzRLm5taos3yTz6pGlEHFKaSoYI2Ref3T5I';
 const GOOGLE_SHEET_WEBAPP_URL='https://script.google.com/macros/s/AKfycbwaFPCnsSBnI3gHAoiZ34tIkWyjKrkuJTVgRN0NNQd_XSX8RNlfKtniloTmHHtjuJBO/exec';
 const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let currentScreen='roleScreen', role='', currentUser=null;
 let jobs=[], applications=[], accounts=[];
-let liveTimer=null, liveBusy=false, alertReady=false, audioCtx=null, lastManagerState='', lastWorkerState='', lastManagerPendingIds=new Set(), lastWorkerStatusMap=new Map();
+let liveTimer=null, liveBusy=false, alertReady=false, audioCtx=null, lastManagerState='', lastWorkerState='', lastManagerPendingIds=new Set(), lastWorkerStatusMap=new Map(), lastWorkerPublicJobIds=new Set();
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 const clean=v=>String(v??'').trim();
@@ -227,14 +227,16 @@ async function unlockAudio(){try{const C=window.AudioContext||window.webkitAudio
 function managerJobIds(){const cid=currentCompanyId(); return new Set(jobs.filter(j=>String(j.company_id||'')===String(cid)).map(j=>Number(j.id)))}
 function managerPendingApps(){const ids=managerJobIds(); return applications.filter(a=>ids.has(Number(a.job_id))&&isPending(a.status)).sort((a,b)=>Number(b.id)-Number(a.id))}
 function managerPendingIdSet(){return new Set(managerPendingApps().map(a=>String(a.id)))}
+function workerPublicJobIdSet(){return new Set(jobs.filter(j=>isPublished(j)&&!isFull(j)&&!isClosed(j)).map(j=>String(j.id)))}
+function checkWorkerJobAlerts(){const now=workerPublicJobIdSet(); const added=[...now].filter(id=>!lastWorkerPublicJobIds.has(id)); if(added.length){const newest=jobs.filter(j=>added.includes(String(j.id))).sort((a,b)=>Number(b.id)-Number(a.id))[0]; notifyOnce('worker_job_new',newest?`job_${newest.id}`:`job_${added[0]}`,'새 공고가 등록되었습니다. 공고 목록을 확인하세요.')} lastWorkerPublicJobIds=now;}
 function workerApps(){const p=workerPhone(); return applications.filter(a=>applicationPhoneKey(a)===p)}
 function workerStatusMap(){const m=new Map(); workerApps().forEach(a=>m.set(String(a.id),normalizeStatus(a.status))); return m}
 function stateKey(){if(role==='manager')return [...managerPendingIdSet()].sort().map(id=>'app:'+id).join('|'); if(role==='worker')return [...workerStatusMap()].map(([id,st])=>`${id}:${st}`).sort().join('|'); return ''}
 function alertsAllowedScreen(){return ['manager','worker'].includes(role)&&!!currentUser&&!['roleScreen','signupScreen','managerLoginScreen','workerLoginScreen'].includes(currentScreen)}
 function checkManagerAlerts(){const now=managerPendingIdSet(); const added=[...now].filter(id=>!lastManagerPendingIds.has(id)); if(added.length){const newest=managerPendingApps().find(a=>String(a.id)===String(added.sort((a,b)=>Number(b)-Number(a))[0])); notifyOnce('manager_pending_new',newest?`app_${newest.id}`:`app_${added[0]}`,'새 근무 신청이 들어왔습니다.')} lastManagerPendingIds=now; lastManagerState=stateKey()}
 function checkWorkerAlerts(){const now=workerStatusMap(); let alerted=false; now.forEach((st,id)=>{const prev=lastWorkerStatusMap.get(id); if(prev&&prev!==st){if(isMatched(st)){notifyOnce('worker_match_new',`app_${id}_${st}`,'매칭 완료: 업체 담당자와 연락처를 확인하세요.'); alerted=true} else if(['거절','미선정','지원취소','매칭 취소','매칭취소','근무완료'].includes(st)){notifyOnce('worker_status_new',`app_${id}_${st}`,'신청 상태가 변경되었습니다.'); alerted=true}}}); if(!alerted){const approved=workerApps().find(a=>isMatched(a.status)); if(approved)notifyOnce('worker_match_visible',`app_${approved.id}_${normalizeStatus(approved.status)}`,'매칭 완료: 업체 담당자와 연락처를 확인하세요.')} lastWorkerStatusMap=now; lastWorkerState=stateKey()}
-async function liveSync(){if(!alertsAllowedScreen()||liveBusy)return; liveBusy=true; try{await loadData(); await autoCloseFullJobs(); await loadData(); renderAll(); const stamp=$('liveStamp'); if(stamp)stamp.innerText='최근 자동 동기화: '+new Date().toLocaleTimeString('ko-KR'); if(role==='manager')checkManagerAlerts(); if(role==='worker')checkWorkerAlerts()}finally{liveBusy=false}}
-function startLive(){stopLive(); if(role==='manager'){lastManagerPendingIds=managerPendingIdSet(); lastManagerState=stateKey()} if(role==='worker'){lastWorkerStatusMap=workerStatusMap(); lastWorkerState=stateKey()} if(alertsAllowedScreen()){liveTimer=setInterval(liveSync,2200); setTimeout(liveSync,350)}}
+async function liveSync(){if(!alertsAllowedScreen()||liveBusy)return; liveBusy=true; try{await loadData(); await autoCloseFullJobs(); await loadData(); renderAll(); const stamp=$('liveStamp'); if(stamp)stamp.innerText='최근 자동 동기화: '+new Date().toLocaleTimeString('ko-KR'); if(role==='manager')checkManagerAlerts(); if(role==='worker'){checkWorkerJobAlerts(); checkWorkerAlerts()}}finally{liveBusy=false}}
+function startLive(){stopLive(); if(role==='manager'){lastManagerPendingIds=managerPendingIdSet(); lastManagerState=stateKey()} if(role==='worker'){lastWorkerStatusMap=workerStatusMap(); lastWorkerPublicJobIds=workerPublicJobIdSet(); lastWorkerState=stateKey()} if(alertsAllowedScreen()){liveTimer=setInterval(liveSync,2200); setTimeout(liveSync,350)}}
 function stopLive(){if(liveTimer){clearInterval(liveTimer); liveTimer=null}}
 init();
 </script>
