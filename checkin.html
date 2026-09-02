@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#020617">
+<title>WEXA 출근 확인</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:#020617;color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif}body{display:flex;justify-content:center}.app{width:100%;max-width:440px;padding:24px 16px 72px}.brand{font-size:28px;font-weight:950;letter-spacing:-1px;color:#dbeafe}.sub{color:#94a3b8;font-size:13px;line-height:1.55;margin-top:6px}.card{margin-top:14px;padding:17px;border-radius:22px;background:linear-gradient(180deg,#0f172a,#111827);border:1px solid rgba(148,163,184,.15);box-shadow:0 12px 30px rgba(0,0,0,.24)}.notice{border-color:rgba(96,165,250,.24)}.title{font-size:18px;font-weight:900}.info{margin-top:8px;color:#cbd5e1;font-size:14px;line-height:1.5}.badge{display:inline-flex;margin-top:10px;padding:6px 10px;border-radius:999px;background:rgba(37,99,235,.17);border:1px solid rgba(96,165,250,.22);color:#bfdbfe;font-size:12px;font-weight:900}button{width:100%;min-height:52px;margin-top:12px;border:1px solid rgba(147,197,253,.35);border-radius:17px;background:linear-gradient(180deg,#2563eb,#1e40af);color:#fff;font-size:15px;font-weight:900;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}.gray{background:linear-gradient(180deg,#334155,#1e293b);border-color:rgba(148,163,184,.24)}.green{background:linear-gradient(180deg,#15803d,#166534);border-color:rgba(134,239,172,.3)}.empty{margin-top:14px;padding:18px;border:1px dashed rgba(148,163,184,.25);border-radius:20px;color:#94a3b8;font-size:14px;line-height:1.55}.ok{color:#86efac}.warn{color:#fde68a}.error{color:#fecaca}.version{margin-top:14px;color:#64748b;font-size:11px;text-align:center}.row{display:flex;gap:8px}.row button{flex:1}.status{margin-top:10px;padding:10px 12px;border-radius:14px;background:rgba(2,6,23,.55);font-size:12px;line-height:1.45;color:#cbd5e1}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="brand">WEXA 출근 확인</div>
+  <div class="sub">승인된 근로자만 근무일에 출근 기록을 남길 수 있습니다. 동일 근무일 중복 출근은 서버에서 차단됩니다.</div>
+  <div class="card notice"><div class="title">안전 출근 기록</div><div class="info">현재 WEXA 로그인 세션과 Supabase 권한을 그대로 사용합니다. 다른 근로자의 기록은 조회하거나 생성할 수 없습니다.</div></div>
+  <div id="root"><div class="empty">로그인 상태를 확인하고 있습니다.</div></div>
+  <div class="row"><button class="gray" onclick="location.href='./?v=511'">WEXA 홈</button><button class="gray" onclick="load()">새로고침</button></div>
+  <div class="version">WEXA CHECK-IN v1.0 · 2026-09-03</div>
+</div>
+<script>
+const SUPABASE_URL='https://zhbzphvqiiijfjqnktlo.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpoYnpwaHZxaWlpamZqcW5rdGxvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwNDEwNTcsImV4cCI6MjA5NDYxNzA1N30.ufIPHJh2fzRLm5taos3yTz6pGlEHFKaSoYI2Ref3T5I';
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const root=document.getElementById('root');
+const esc=v=>String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+const clean=v=>String(v??'').trim();
+const norm=v=>clean(v).replace(/\s+/g,'');
+function todayKst(){try{return new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Seoul'})}catch(e){const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)}}
+function dateText(j){const s=clean(j?.work_start_date||j?.work_start||j?.work_date);const e=clean(j?.work_end_date||j?.work_end||s);return !s?'날짜 미정':(e&&e!==s?`${s} ~ ${e}`:s)}
+function workTime(j){const st=clean(j?.work_start_time),et=clean(j?.work_end_time);if(st&&et)return `${st} ~ ${et}`;const raw=clean(j?.work_time);return raw.replace(/\s*[\/|·-]?\s*신청\s*마감\s*[:：]?\s*[0-2]?\d:[0-5]\d\s*/g,'').trim()||'-'}
+function withinToday(j){const t=todayKst(),s=clean(j?.work_start_date||j?.work_start||j?.work_date),e=clean(j?.work_end_date||j?.work_end||s);if(!s)return true;return t>=s&&t<=(e||s)}
+function friendlyError(e){const m=String(e?.message||e||'');if(m.includes('ALREADY_CHECKED_IN')||m.includes('duplicate'))return '오늘 출근 확인이 이미 완료되었습니다.';if(m.includes('CHECKIN_OUTSIDE_WORK_DATE'))return '근무일이 아니어서 출근 확인할 수 없습니다.';if(m.includes('APPROVED_APPLICATION_REQUIRED'))return '승인된 근무 신청이 확인되지 않습니다.';if(m.includes('AUTH_REQUIRED')||m.includes('JWT'))return '로그인이 만료되었습니다. WEXA에서 다시 로그인해주세요.';return '출근 확인 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'}
+function getGps(){return new Promise(resolve=>{if(!navigator.geolocation)return resolve('미제공');navigator.geolocation.getCurrentPosition(p=>resolve(`${p.coords.latitude.toFixed(6)},${p.coords.longitude.toFixed(6)}`),()=>resolve('미제공'),{enableHighAccuracy:false,timeout:8000,maximumAge:60000})})}
+async function checkIn(jobId,btn){if(btn){btn.disabled=true;btn.textContent='출근 확인 중...'}try{const gps=await getGps();const {data,error}=await db.rpc('wexa_check_in',{p_job_id:Number(jobId),p_gps:gps});if(error)throw error;alert('출근 확인이 완료되었습니다.');await load()}catch(e){alert(friendlyError(e));if(btn){btn.disabled=false;btn.textContent='출근 확인'}}}
+async function load(){root.innerHTML='<div class="empty">출근 정보를 확인하고 있습니다.</div>';const {data:userData,error:userError}=await db.auth.getUser();const user=userData?.user;if(userError||!user){root.innerHTML='<div class="empty error">WEXA 로그인이 필요합니다. 아래 WEXA 홈에서 근로자 로그인 후 다시 열어주세요.</div>';return}if(String(user.app_metadata?.role||'')!=='worker'){root.innerHTML='<div class="empty error">근로자 계정만 출근 확인을 사용할 수 있습니다.</div>';return}
+const {data:apps,error:appError}=await db.from('applications').select('id,job_id,status,worker_user_id').eq('worker_user_id',user.id).order('id',{ascending:false});if(appError){root.innerHTML='<div class="empty error">승인 내역 조회에 실패했습니다.</div>';return}const approved=(apps||[]).filter(a=>norm(a.status)==='승인');if(!approved.length){root.innerHTML='<div class="empty">현재 출근 확인 가능한 승인 근무가 없습니다.</div>';return}const ids=[...new Set(approved.map(a=>Number(a.job_id)).filter(Boolean))];const [{data:jobs,error:jobError},{data:atts,error:attError}]=await Promise.all([db.from('jobs').select('*').in('id',ids),db.from('attendance').select('job_id,attendance_date,check_in_at,status').eq('worker_user_id',user.id).in('job_id',ids)]);if(jobError||attError){root.innerHTML='<div class="empty error">공고 또는 출근기록 조회에 실패했습니다.</div>';return}const today=todayKst();const checked=new Set((atts||[]).filter(a=>String(a.attendance_date||'')===today).map(a=>Number(a.job_id)));const map=new Map((jobs||[]).map(j=>[Number(j.id),j]));root.innerHTML=approved.map(a=>{const j=map.get(Number(a.job_id));if(!j)return '';const done=checked.has(Number(j.id));const valid=withinToday(j);return `<div class="card"><div class="title">${esc(j.title||'근무 공고')}</div><div class="badge">${done?'출근 확인 완료':'승인 완료'}</div><div class="info">📅 ${esc(dateText(j))}</div><div class="info">⏰ ${esc(workTime(j))}</div><div class="info">📍 ${esc(j.location||'-')}</div><div class="status ${done?'ok':valid?'warn':'error'}">${done?'오늘 출근 기록이 저장되었습니다.':valid?'현재 근무일입니다. 출근 후 버튼을 눌러주세요.':'현재 근무일이 아닙니다.'}</div><button class="${done?'green':''}" ${done||!valid?'disabled':''} onclick="checkIn(${Number(j.id)},this)">${done?'출근 확인 완료':'출근 확인'}</button></div>`}).join('')||'<div class="empty">표시할 공고가 없습니다.</div>'}
+load();
+</script>
+</body>
+</html>
