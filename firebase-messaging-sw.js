@@ -16,15 +16,26 @@ firebase.messaging();
 self.addEventListener("notificationclick", function(event) {
   event.notification.close();
 
-  const fallbackUrl = "/-flowiq-crew-phon/";
+  const raw = (event.notification && event.notification.data) || {};
+  const fcm = raw.FCM_MSG || raw;
+  const eventType = (fcm.data && fcm.data.event_type) || raw.event_type || "";
+  const targetUrl = eventType === "application_approved"
+    ? "/-flowiq-crew-phon/checkin.html"
+    : "/-flowiq-crew-phon/";
+
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then(function(clientList) {
       for (const client of clientList) {
-        if (client.url.includes("/-flowiq-crew-phon/") && "focus" in client) {
-          return client.focus();
+        if (client.url.includes("/-flowiq-crew-phon/")) {
+          if ("navigate" in client) {
+            return client.navigate(targetUrl).then(function(navigated) {
+              return navigated && "focus" in navigated ? navigated.focus() : client.focus();
+            });
+          }
+          if ("focus" in client) return client.focus();
         }
       }
-      if (clients.openWindow) return clients.openWindow(fallbackUrl);
+      if (clients.openWindow) return clients.openWindow(targetUrl);
     })
   );
 });
